@@ -1,0 +1,320 @@
+#include <ESP8266WiFi.h>
+#include <WebSocketsServer.h>
+#include <EEPROM.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
+#include <SoftwareSerial.h>
+#include <FirebaseArduino.h>
+
+/*
+#define WIFI_SSID "ZTE_2.4G_Cd22by"
+#define WIFI_PASS "NiGDbDSZ"
+*/
+#define WIFI_SSID "klique"
+#define WIFI_PASS "ricecooker"
+
+#define SCREEN_X    64
+#define SCREEN_Y    128
+#define OLED_RST    -1
+#define LCD_ADDR    0x3C
+
+
+String  WIFI_SSID_RECORD = "", 
+        WIFI_PASS_RECORD = "";
+
+uint8_t SSID_CUTTER_FIN,
+        PASS_CUTTER_FIN;
+
+
+WebSocketsServer WS = WebSocketsServer(82);
+
+Adafruit_SH1107 OLED = Adafruit_SH1107(SCREEN_X, SCREEN_Y, &Wire, OLED_RST, 1000000, 100000);
+
+SoftwareSerial ESP_COM(D7, D8);
+
+
+#define F_HOST  "klique-db-default-rtdb.firebaseio.com" //"entruderdb-default-rtdb.firebaseio.com"  https://klique-db-default-rtdb.firebaseio.com/
+#define F_TOCK  "Repy2RWBb4puvYYTm9OGyorZOD9FiE35jcZ8ZoTF"
+
+void socket_evt(uint8_t NUM, WStype_t type, uint8_t * payload, size_t length) {
+  switch(type) {
+    case WStype_CONNECTED:
+      Serial.println("device is ready");
+      WS.broadcastTXT("SOCKET_START");
+    break;
+    case WStype_DISCONNECTED:
+      Serial.println("No Connection to Socket");
+      WS.broadcastTXT("SOCKET_END");
+    break;
+    case WStype_TEXT:
+      String DAT_GATHERED;
+      for(int x = 0 ; x < length ; x++) {
+        DAT_GATHERED += (char)payload[x];
+      }
+
+      
+      EEPROM.write(0, DAT_GATHERED.length());
+      for(int i = 1; i < DAT_GATHERED.length()+1 ; i++) {
+        EEPROM.write(i, DAT_GATHERED[i-1]);
+        delay(100);
+      }
+
+      EEPROM.commit();
+      Serial.println(EEPROM.read(0));
+      for(int i = 0; i < EEPROM.read(0) ; i++) {
+        DAT_GATHERED += (char)EEPROM.read(i+1);
+      }
+
+      uint8_t SSID_CUTTER = DAT_GATHERED.indexOf("|"),
+              PASS_CUTTER = DAT_GATHERED.indexOf("|", SSID_CUTTER + 1);
+
+      String  SSID_FINAL  = DAT_GATHERED.substring(0, SSID_CUTTER),
+              PASS_FINAL  = DAT_GATHERED.substring(SSID_CUTTER + 1, PASS_CUTTER);
+
+      Serial.println();
+      Serial.println("WiFi Configuration saved!");
+
+      break;
+  }
+}
+
+
+
+void setup() {
+  Serial.begin(115200);
+  ESP_COM.begin(9600);
+  EEPROM.begin(1024);
+  OLED.begin(LCD_ADDR, true);
+  OLED.display();
+  OLED.clearDisplay();
+  OLED.setRotation(1);
+
+  delay(1000);
+
+ String FINAL_DAT_GATHERING;
+  for(int i = 0; i < EEPROM.read(0) ; i++) {
+        FINAL_DAT_GATHERING += (char)EEPROM.read(i+1);
+  }
+
+  SSID_CUTTER_FIN = FINAL_DAT_GATHERING.indexOf("|"),
+  PASS_CUTTER_FIN = FINAL_DAT_GATHERING.indexOf("|", SSID_CUTTER_FIN + 1);
+
+  WIFI_SSID_RECORD = FINAL_DAT_GATHERING.substring(0, SSID_CUTTER_FIN),
+  WIFI_PASS_RECORD = FINAL_DAT_GATHERING.substring(SSID_CUTTER_FIN + 1, PASS_CUTTER_FIN);
+  
+  // WIFI SETTINGS
+  WiFi.mode(WIFI_STA);
+  WiFi.softAPdisconnect(true);
+  WiFi.begin(WIFI_SSID_RECORD, WIFI_PASS_RECORD);
+  //WiFi.begin(WIFI_SSID, WIFI_PASS);
+  
+  Firebase.begin(F_HOST, F_TOCK);
+  
+
+
+  uint8_t TIMEOUT_COUNTER = 1;
+  while(WiFi.status() != WL_CONNECTED) {
+    TIMEOUT_COUNTER += 1;
+
+    OLED.clearDisplay();
+    OLED.setTextSize(2);
+    OLED.setTextColor(SH110X_WHITE);
+    OLED.setCursor(20,20);
+    OLED.println("KLIQUE");
+    OLED.setTextSize(1);
+    OLED.setCursor(25,40);
+    OLED.println("Booting " + String(TIMEOUT_COUNTER) + " ...");
+    OLED.display();
+    OLED.clearDisplay();
+
+    delay(1000);
+    Serial.println(String(TIMEOUT_COUNTER) + " : CONNECTING");
+    if(TIMEOUT_COUNTER > 30) {
+        TIMEOUT_COUNTER = 0;
+        
+        OLED.clearDisplay();
+        OLED.setTextSize(2);
+        OLED.setTextColor(SH110X_WHITE);
+        OLED.setCursor(20,20);
+        OLED.println("KLIQUE");
+        OLED.setTextSize(1);
+        OLED.setCursor(25,40);
+        OLED.println("Not Connected!");
+        OLED.display();
+        OLED.clearDisplay();
+
+        WiFi.disconnect();
+        delay(100);
+        WiFi.mode(WIFI_AP);
+        WiFi.softAPdisconnect(false);
+        WiFi.softAP("Klique AP", "sandwich");
+        delay(1000);
+        Serial.println("Not Connected!");
+        
+        WS.begin();
+        WS.onEvent(socket_evt);
+        
+        delay(1000);
+        break;
+    } 
+    
+  }
+
+  if(WiFi.status() == WL_CONNECTED) {
+        OLED.clearDisplay();
+        OLED.setTextSize(2);
+        OLED.setTextColor(SH110X_WHITE);
+        OLED.setCursor(20,20);
+        OLED.println("KLIQUE");
+        OLED.setTextSize(1);
+        OLED.setCursor(25,40);
+        OLED.println("Connected!");
+        OLED.display();
+        OLED.clearDisplay();
+
+        delay(1000);
+  }
+  
+}
+
+
+
+bool WIFI_VERIFY_RUN_ONCE = true;
+
+bool VALID_RICE = true;
+int counter = 0;
+
+void loop() {
+  WS.loop();
+  
+   if(ESP_COM.available()) {
+      char REC_ARD = ESP_COM.read();
+      //Serial.println(REC_ARD);
+      switch((char)REC_ARD) {
+
+        case 'q':
+          Serial.println("Filling Rice..");
+          Firebase.setInt("STAGE", 1);
+          counter = 1;
+        break;
+
+        case 'w':
+          Serial.println("Rinsing..");
+          Firebase.setInt("STAGE", 2);
+          counter = 2;
+        break;
+        
+        case 'e':
+          Serial.println("Cooking..");
+          Firebase.setInt("STAGE", 3);
+          counter = 3;
+        break;
+        
+        case 'r':
+          Serial.println("Warming..");
+          Firebase.setInt("STAGE", 4);
+          counter = 4;
+        break;
+        case 't':
+          Serial.println("COOKED!");
+          Firebase.setInt("STAGE", 5);
+          counter = 5;
+          VALID_RICE = true;
+        break;
+      }
+  }
+
+  if(VALID_RICE) {
+    if((uint8_t)Firebase.getInt("STAGE") == 1) {
+        counter = 1;
+        if(Firebase.getInt("SET_RICE_AMOUNT") ==      1) {
+          ESP_COM.print('a'); 
+          VALID_RICE = false;
+        }
+        else if(Firebase.getInt("SET_RICE_AMOUNT") == 2) {
+          ESP_COM.print('b'); 
+          VALID_RICE = false;
+        }
+        else {}
+    } else if((uint8_t)Firebase.getInt("STAGE") == 9) counter = 0;
+  }
+
+
+    OLED.clearDisplay();
+    OLED.setTextSize(1);
+    OLED.setTextColor(SH110X_WHITE);
+    OLED.setCursor(1,1);
+    OLED.println("KLIQUE");
+    
+
+  if(WiFi.status() != WL_CONNECTED) {
+   // Serial.println(WiFi.softAPIP());
+    // SHOW in LCD KLIQUE is Not connected to WiFi
+    OLED.setCursor(0,10);
+    OLED.print("WiFi: ");
+    OLED.println("Not Connected");
+
+    OLED.print("IP:   ");
+    OLED.println(WiFi.softAPIP());
+   
+
+  } else {
+   // Serial.println(WiFi.localIP());  
+    // SHOW in LCD KLIQUE is connected to WiFi
+    OLED.setCursor(0,10);
+    OLED.print("WiFi: ");
+    OLED.println("Connected");
+
+    OLED.print("IP:   ");
+    OLED.println(WiFi.localIP());
+  }                              
+
+    OLED.drawRect(0, 30, 90, 12, SH110X_WHITE);
+    OLED.fillRect(2, 32, 17*counter, 10, SH110X_WHITE);
+
+  switch(counter) {
+      case 5:
+        OLED.setCursor(95, 33);
+        OLED.println("100%");
+        OLED.setCursor(0,50);
+        OLED.println("Finished...");
+      break;
+      case 4:
+        OLED.setCursor(95, 33);
+        OLED.println("85%");
+        OLED.setCursor(0,50);
+        OLED.println("Warming...");
+      break;
+      case 3:
+        OLED.setCursor(95, 33);
+        OLED.println("70%");
+        OLED.setCursor(0,50);
+        OLED.println("Cooking...");
+      break;
+      case 2:
+        OLED.setCursor(95, 33);
+        OLED.println("50%");
+        OLED.setCursor(0,50);
+        OLED.println("Rinsing...");
+      break;
+      case 1:
+        OLED.setCursor(95, 33);
+        OLED.println("10%");
+        OLED.setCursor(0,50);
+        OLED.println("Filling Rice...");
+      break;
+      case 0:
+      case 9:
+        OLED.setCursor(95, 33);
+        OLED.println("0%");
+        OLED.setCursor(0,50);
+        OLED.println("Waiting...");
+      break;
+    }
+
+  OLED.display();
+  delay(3000);
+
+}

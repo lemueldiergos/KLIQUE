@@ -1,0 +1,220 @@
+// CALIBRATION AREA
+
+// RINSE
+
+// Unit (Minutes)
+
+
+#define WI_RINSE 4000   // milliseconds   // Water in rinse 
+#define HS_RINSE 3      // minutes        // Heating Rinse
+#define WO_RINSE 5      // minutes        // Water out in rinse
+
+
+// COOKING
+#define WI_COOKING 4000  // milliseconds    // Water in 
+#define HS_COOK1C 15     // minutes // 15   // I Cups
+#define HS_COOK2C 20     // minutes // 20   // 2 Cups
+
+// WARMING
+
+#define HS_WARM  5      // minutes // Warming 
+
+
+#define WATER_OUT_AFTER_COOKED 3 // minutes // WATER OUT
+
+// MODULE SETTINGS:
+
+#define WATER_FLOW_PRESSURE 255
+
+
+
+
+
+
+
+
+// ! DO NOT CHANGE the code STARTING FROM THIS COMMENT ! -------------------------------------
+/*
+    Programmer:   Lemuel E. Diergos
+    Language:     C/C++
+    Date:         04/.../2024
+    Project:      KLIQUE
+
+*/
+
+
+// MULTIPLIER
+
+#define MS_TO_SEC 60000
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////
+#include <SoftwareSerial.h>
+#include <EEPROM.h>
+
+#define DIR     4
+#define STP     5
+#define EN      6
+
+#define HEATER 10
+
+#define WPM     9
+
+#define SLD     8
+
+#define SPD 100 
+
+int NUM_CUP = 0;
+
+SoftwareSerial ARD_COM(2,3);
+
+void setup() {
+  Serial.begin(115200);
+  ARD_COM.begin(9600);
+  
+  pinMode(DIR, OUTPUT);
+  pinMode(STP, OUTPUT);
+  pinMode(EN, OUTPUT);
+
+  pinMode(HEATER, OUTPUT);
+
+  pinMode(WPM, OUTPUT);
+
+  pinMode(SLD, OUTPUT);
+  digitalWrite(SLD, HIGH);
+}
+
+
+
+void loop() {
+  if(ARD_COM.available()) {
+    char REC = ARD_COM.read();
+    Serial.println((char)REC);
+    if(REC == 'a') {
+      
+      FILLING_RICE(1);
+      NUM_CUP = 1;
+      
+    } else if(REC == 'b') {
+    
+      FILLING_RICE(2);
+      NUM_CUP = 2;  
+    }
+    else {
+      NUM_CUP = 0;
+    }
+  }
+   
+}
+
+
+void FILLING_RICE(int AMOUNT) {
+  Serial.println("Filling the rice... CUPS: " + String(AMOUNT));
+  ARD_COM.print('q');
+  
+  if(AMOUNT == 1) {
+      for(int x = 0; x <= 199; x++) {
+
+     digitalWrite(STP, HIGH);
+      delay(SPD);
+      
+      digitalWrite(STP, LOW);
+      delay(SPD);
+      }
+
+
+    } else if(AMOUNT == 2) {
+       for(int x = 0; x <= 199; x++) {
+
+     digitalWrite(STP, HIGH);
+      delay(SPD);
+      
+      digitalWrite(STP, LOW);
+      delay(SPD);
+      }
+      delay(4000);
+      for(int x = 0; x <= 200; x++) {
+
+     digitalWrite(STP, HIGH);
+      delay(SPD);
+      
+      digitalWrite(STP, LOW);
+      delay(SPD);
+      }
+    }
+     else {
+      
+      digitalWrite(STP, LOW);
+    }
+  delay(1000);
+  RINSE();
+}
+
+void RINSE() {
+  Serial.println("Rinsing...");
+  ARD_COM.print('w');
+
+  WATER_IN(WI_RINSE);
+  HEATING_SWITCH(HS_RINSE);
+  WATER_OUT(WO_RINSE);
+  WATER_IN(WI_COOKING);
+  
+  delay(1000);
+  COOKING();
+}
+
+void COOKING() {
+  Serial.println("Cooking...");
+
+  ARD_COM.print('e');
+
+  if(NUM_CUP = 1) HEATING_SWITCH(HS_COOK1C);
+  else if(NUM_CUP = 2) HEATING_SWITCH(HS_COOK2C);
+  else {}
+  
+  delay(1000);
+  WARMING();
+}
+
+void WARMING() {
+  Serial.println("Warming...");
+  ARD_COM.print('r');
+
+  HEATING_SWITCH(HS_WARM);
+
+  delay(1000);
+  COOKED();
+}
+
+void COOKED() {
+  Serial.println("Cooked!");
+  WATER_OUT(WATER_OUT_AFTER_COOKED);
+  digitalWrite(HEATER, LOW);
+  ARD_COM.print('t');
+  delay(1000);
+  
+}
+
+
+
+void HEATING_SWITCH(int T) {
+  digitalWrite(HEATER, HIGH);
+  delay(MS_TO_SEC * T);
+  digitalWrite(HEATER, LOW);
+}
+
+void WATER_IN(int T) {
+  analogWrite(WPM, WATER_FLOW_PRESSURE);
+  delay(T);
+  analogWrite(WPM, 0);  
+}
+
+void WATER_OUT(int T) {
+  digitalWrite(SLD, LOW);
+  //delay(MS_TO_SEC * T);
+  delay(MS_TO_SEC * T);
+  digitalWrite(SLD, HIGH);  
+}
